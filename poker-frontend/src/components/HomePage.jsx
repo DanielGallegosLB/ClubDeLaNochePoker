@@ -1,6 +1,6 @@
 // poker-frontend/src/components/HomePage.jsx
 
-import React, { useState, useEffect, useCallback, useRef } from 'react'; // ¡Importa useRef!
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 // Componente para representar las fichas del pozo (estático)
 const PotDisplayChips = ({ amount }) => {
@@ -427,7 +427,7 @@ const HomePage = ({ discordInfo, onLogout }) => {
             setAiHand(aHand);
             playSound(dealCardSound, 1000); // Reproduce por 1000 ms (1 segundo)
         }, 600);
-        
+
         setDeck(newDeck);
 
         const smallBlind = 10;
@@ -478,6 +478,8 @@ const HomePage = ({ discordInfo, onLogout }) => {
         setPlayerContributionInRound(0);
         setAiContributionInRound(0);
         setCurrentBet(0);
+        setLastPlayerToBet(null); // Resetear último en apostar al inicio de nueva fase
+        setPlayerTurn(true); // Siempre empieza el jugador en las nuevas fases de apuesta
 
         if (gamePhase === 'pre-flop') {
             newCommunityCards = [currentDeck.pop(), currentDeck.pop(), currentDeck.pop()];
@@ -495,7 +497,7 @@ const HomePage = ({ discordInfo, onLogout }) => {
             newCommunityCards.push(currentDeck.pop());
             nextPhaseName = 'river';
             message = 'River revelado. ¡Última jugada! Es tu turno.';
-            playSound(dealCardSound, 1000);; // Sonido al revelar River
+             playSound(dealCardSound, 1000); // Sonido al revelar River
             console.log('[POKER LOG] River revelado:', newCommunityCards[newCommunityCards.length - 1]);
         } else if (gamePhase === 'river') {
             nextPhaseName = 'showdown';
@@ -509,726 +511,626 @@ const HomePage = ({ discordInfo, onLogout }) => {
         setCommunityCards(newCommunityCards);
         setDeck(currentDeck);
         setGamePhase(nextPhaseName);
-        setLastPlayerToBet(null); // Resetear el último en apostar
-        setPlayerTurn(true); // Siempre empieza el jugador en las nuevas fases de apuesta
         setGameMessage(message);
         setRoundMessage('Puedes Pasar, Apostar o Retirarte.');
         console.log(`[POKER LOG] Fase actual: ${nextPhaseName}. Turno del Jugador.`);
     }, [deck, communityCards, gamePhase, determineWinner, dealCardSound]);
 
+
+    const checkEndOfRound = useCallback(() => {
+        console.log('[POKER LOG] checkEndOfRound called.');
+        console.log('playerContributionInRound:', playerContributionInRound);
+        console.log('aiContributionInRound:', aiContributionInRound);
+        console.log('currentBet:', currentBet);
+        console.log('playerPesos:', playerPesos);
+        console.log('aiPesos:', aiPesos);
+        console.log('playerTurn:', playerTurn);
+        console.log('lastPlayerToBet:', lastPlayerToBet);
+
+        // Check for folds first (game-ending condition for the hand)
+        if (gameMessage.includes('se ha retirado') && gameMessage.includes('Jugador')) {
+            console.log('[POKER LOG] Player folded, AI wins the pot.');
+            setAiPesos(prev => prev + pot);
+            setPot(0);
+            setGamePhase('finished');
+            setRoundMessage('');
+            setPlayerContributionInRound(0);
+            setAiContributionInRound(0);
+            playSound(loseSound);
+            return;
+        }
+        if (gameMessage.includes('se ha retirado') && gameMessage.includes('IA')) {
+            console.log('[POKER LOG] AI folded, Player wins the pot.');
+            setPlayerPesos(prev => prev + pot);
+            setPot(0);
+            setGamePhase('finished');
+            setRoundMessage('');
+            setPlayerContributionInRound(0);
+            setAiContributionInRound(0);
+            playSound(winSound);
+            return;
+        }
+
+        // Determine if the betting round is complete
+        let roundComplete = false;
+
+        // Condition 1: No current bet (all checked)
+        if (currentBet === 0) {
+            // Both players checked (implicitly or explicitly by cycle)
+            if (playerContributionInRound === 0 && aiContributionInRound === 0 && lastPlayerToBet !== null) {
+                roundComplete = true; // Both checked through a full cycle
+            }
+        }
+        // Condition 2: There is a current bet
+        else {
+            const playerMatched = playerContributionInRound >= currentBet || playerPesos === 0; // Player matched or all-in
+            const aiMatched = aiContributionInRound >= currentBet || aiPesos === 0;             // AI matched or all-in
+
+            // Both matched the bet, or both are all-in, or one is all-in and the other matched/called.
+            if (playerMatched && aiMatched) {
+                // Now check if turns have cycled or one forced the other all-in
+                if (lastPlayerToBet === 'player' && aiMatched) {
+                     // Player raised, AI matched or went all-in
+                    roundComplete = true;
+                } else if (lastPlayerToBet === 'ai' && playerMatched) {
+                     // AI raised, Player matched or went all-in
+                    roundComplete = true;
+                }
+            }
+        }
+
+        if (roundComplete) {
+            console.log('[POKER LOG] Betting round complete. Advancing to next phase.');
+            setPlayerContributionInRound(0); // Reset for next phase
+            setAiContributionInRound(0);     // Reset for next phase
+            setCurrentBet(0);                // Reset current bet for next phase
+            setLastPlayerToBet(null);        // Reset last player to bet for next phase
+            setTimeout(() => nextPhase(), 1000);
+            return;
+        }
+
+        // If round is NOT complete, pass the turn
+        if (playerTurn) {
+            console.log('[POKER LOG] Player acted, passing turn to AI.');
+            setTimeout(() => aiTurn(), 1500);
+        } else {
+            console.log('[POKER LOG] AI acted, passing turn to Player.');
+            setPlayerTurn(true);
+        }
+    }, [playerPesos, aiPesos, playerContributionInRound, aiContributionInRound, currentBet, gameMessage, lastPlayerToBet, playerTurn, pot, nextPhase, aiTurn, winSound, loseSound]);
+
+
     // Lógica de la IA
     const aiTurn = useCallback(() => {
         console.log('[POKER LOG] AI Turn initiated. Current game phase:', gamePhase);
-        setPlayerTurn(false); // El turno del jugador termina
+        setIsProcessingTurn(true); // Disable buttons while AI thinks
+        setPlayerTurn(false); // The player's turn ends
 
         const timeoutId = setTimeout(() => {
             console.log('[POKER LOG] AI Turn setTimeout callback fired.');
             let aiAction = '';
+            let finalBetAmount = 0;
             const aiAggression = 0.4; // 0.0 (pasivo) a 1.0 (agresivo)
 
-            // Evaluar la mano actual de la IA (con cartas comunitarias reveladas hasta ahora)
             const aiCurrentHandValue = evaluateHand(aiHand, communityCards);
             const aiHandStrength = aiCurrentHandValue[0]; // Tipo de mano (0-9)
             console.log('[POKER LOG] AI Hand Strength (0-9):', aiHandStrength);
             console.log('[POKER LOG] AI Pesos:', aiPesos);
-            console.log('[POKER LOG] Current Bet (from player):', currentBet);
+            console.log('[POKER LOG] Current Bet (from player/blinds):', currentBet);
             console.log('[POKER LOG] AI Current Contribution in Round:', aiContributionInRound);
             console.log('[POKER LOG] Last Player to Bet:', lastPlayerToBet);
             console.log('[POKER LOG] Community Cards for AI evaluation:', communityCards);
             console.log('[POKER LOG] AI Hand for evaluation:', aiHand);
 
-            // Calcular cuánto necesita la IA para igualar la apuesta actual
+            // Calculate how much AI needs to match the current bet
             const amountToCall = currentBet - aiContributionInRound;
-            console.log('[POKER LOG] AI Calculated amountToCall:', amountToCall);
-            const canCall = aiPesos >= amountToCall;
+            console.log('[POKER LOG] AI Calculated amountToCall (to match currentBet):', amountToCall);
 
-            // Lógica de decisión de la IA
-            if (currentBet > 0) { // Hay una apuesta activa (Igualar, Subir, Retirarse)
+            if (currentBet > 0) { // There's an active bet (Call, Raise, Fold)
                 console.log('[POKER LOG] AI: Hay una apuesta activa. La IA necesita responder.');
-                if (!canCall) { // No puede igualar
+
+                if (aiPesos <= 0) { // AI has no money left, must fold if not already all-in
                     aiAction = 'fold';
-                    console.log('[POKER LOG] AI: Fondos insuficientes para igualar, se retira.');
-                } else if (aiHandStrength >= 3) { // Trío o mejor: Confiado
-                    // La IA intenta subir si tiene fondos y es agresiva, si no, iguala
-                    aiAction = (Math.random() < 0.7 + aiAggression && aiPesos >= amountToCall + minRaise) ? 'bet' : 'call';
-                    console.log(`[POKER LOG] AI: Mano fuerte (${aiHandStrength}). Decidió ${aiAction}.`);
-                } else if (aiHandStrength >= 1) { // Pareja o Doble Pareja: Confianza moderada
-                    if (Math.random() < 0.3 + aiAggression && aiPesos >= amountToCall + minRaise) { // Pequeña posibilidad de subir
+                    console.log('[POKER LOG] AI: No tiene fondos, se retira.');
+                } else if (aiHandStrength >= 3) { // Strong hand (Trío o mejor)
+                    // Consider raising if enough funds, otherwise call, or all-in if cannot call fully
+                    const potentialRaiseAmount = amountToCall + minRaise;
+                    if (aiPesos >= potentialRaiseAmount && Math.random() < 0.7 + aiAggression) {
+                        finalBetAmount = potentialRaiseAmount; // Full raise
                         aiAction = 'bet';
-                    } else if (Math.random() < 0.9) { // Alta posibilidad de igualar
+                        console.log(`[POKER LOG] AI: Mano fuerte, decide subir a ${finalBetAmount}.`);
+                    } else if (aiPesos >= amountToCall) {
+                        finalBetAmount = amountToCall; // Full call
                         aiAction = 'call';
-                    } else { // Pequeña posibilidad de retirarse
-                        aiAction = 'fold';
+                        console.log(`[POKER LOG] AI: Mano fuerte, decide igualar ${finalBetAmount}.`);
+                    } else { // Cannot fully call, but has some money: Go all-in
+                        finalBetAmount = aiPesos;
+                        aiAction = 'all-in';
+                        console.log(`[POKER LOG] AI: Mano fuerte, pero fondos insuficientes para igualar. Va All-In con ${finalBetAmount}.`);
                     }
-                    console.log(`[POKER LOG] AI: Mano moderada (${aiHandStrength}). Decidió ${aiAction}.`);
-                } else { // Carta Alta: Poca confianza
-                    aiAction = (Math.random() < 0.1 + aiAggression) && aiPesos >= amountToCall + minRaise ? 'bet' : 'fold'; // Pequeña posibilidad de bluff
-                    console.log('[POKER LOG] AI: Mano débil (Carta Alta). Decidió retirarse o bluffear.');
+                } else if (aiHandStrength >= 1) { // Moderate hand (Pareja o Doble Pareja)
+                    // Higher chance to call, smaller chance to raise, some chance to fold
+                    const potentialRaiseAmount = amountToCall + minRaise;
+                    if (aiPesos >= potentialRaiseAmount && Math.random() < 0.3 + aiAggression) { // Small chance to raise
+                        finalBetAmount = potentialRaiseAmount;
+                        aiAction = 'bet';
+                        console.log(`[POKER LOG] AI: Mano moderada, decide subir a ${finalBetAmount}.`);
+                    } else if (aiPesos >= amountToCall) { // High chance to call
+                        finalBetAmount = amountToCall;
+                        aiAction = 'call';
+                        console.log(`[POKER LOG] AI: Mano moderada, decide igualar ${finalBetAmount}.`);
+                    } else { // Cannot fully call, but has some money: Go all-in or fold
+                        if (Math.random() < 0.4) { // Small chance to all-in on desperation
+                            finalBetAmount = aiPesos;
+                            aiAction = 'all-in';
+                            console.log(`[POKER LOG] AI: Mano moderada, fondos insuficientes. Va All-In con ${finalBetAmount}.`);
+                        } else {
+                            aiAction = 'fold';
+                            console.log('[POKER LOG] AI: Mano moderada, fondos insuficientes. Decide retirarse.');
+                        }
+                    }
+                } else { // Weak hand (Carta Alta)
+                    // High chance to fold, small chance to bluff all-in if currentBet is low
+                    if (aiPesos >= amountToCall) { // Can call, but hand is weak
+                        if (Math.random() < 0.1) { // Very small chance to call/bluff call
+                             finalBetAmount = amountToCall;
+                             aiAction = 'call';
+                             console.log(`[POKER LOG] AI: Mano débil, decide bluff-igualar ${finalBetAmount}.`);
+                        } else {
+                            aiAction = 'fold';
+                            console.log('[POKER LOG] AI: Mano débil, decide retirarse.');
+                        }
+                    } else if (aiPesos > 0) { // Cannot fully call, but has some money, very small chance for all-in bluff
+                        if (Math.random() < 0.05 + aiAggression) {
+                            finalBetAmount = aiPesos;
+                            aiAction = 'all-in';
+                            console.log(`[POKER LOG] AI: Mano débil, intenta bluffear All-In con ${finalBetAmount}.`);
+                        } else {
+                            aiAction = 'fold';
+                            console.log('[POKER LOG] AI: Mano débil, fondos insuficientes. Decide retirarse.');
+                        }
+                    } else { // No funds
+                        aiAction = 'fold';
+                        console.log('[POKER LOG] AI: No tiene fondos, se retira.');
+                    }
                 }
-            } else { // No hay apuesta activa (Pasar, Apostar)
+            } else { // No active bet (Check, Bet)
                 console.log('[POKER LOG] AI: No hay apuesta activa. La IA puede Pasar o Apostar.');
-                if (aiHandStrength >= 3) { // Trío o mejor: Confiado para apostar
-                    aiAction = (aiPesos >= minRaise) ? 'bet' : 'check'; // Apostar si puede permitírselo, si no, pasar
-                    console.log(`[POKER LOG] AI: Mano fuerte (${aiHandStrength}). Decidió ${aiAction}.`);
-                } else if (aiHandStrength >= 1) { // Pareja o Doble Pareja: Confianza moderada
-                    aiAction = (Math.random() > 0.4 - aiAggression && aiPesos >= minRaise) ? 'bet' : 'check'; // Más propenso a apostar
-                    console.log(`[POKER LOG] AI: Mano moderada (${aiHandStrength}). Decidió ${aiAction}.`);
-                } else { // Carta Alta: Poca confianza
-                    aiAction = (Math.random() < 0.05 + aiAggression && aiPesos >= minRaise) ? 'bet' : 'check'; // Muy pequeña posibilidad de bluff
-                    console.log('[POKER LOG] AI: Mano débil (Carta Alta). Decidió pasar o bluffear.');
+                if (aiPesos <= 0) {
+                    aiAction = 'check'; // Cannot bet
+                    console.log('[POKER LOG] AI: No tiene fondos, pasa.');
+                } else if (aiHandStrength >= 3) { // Strong hand: likely to bet
+                    if (aiPesos >= minRaise) {
+                        finalBetAmount = minRaise;
+                        aiAction = 'bet';
+                        console.log(`[POKER LOG] AI: Mano fuerte, decide apostar ${finalBetAmount}.`);
+                    } else { // Not enough for minRaise, but wants to bet
+                        finalBetAmount = aiPesos;
+                        aiAction = 'all-in';
+                        console.log(`[POKER LOG] AI: Mano fuerte, pero no suficiente para la subida mínima. Va All-In con ${finalBetAmount}.`);
+                    }
+                } else if (aiHandStrength >= 1) { // Moderate hand: some chance to bet, otherwise check
+                    if (Math.random() > 0.4 - aiAggression && aiPesos >= minRaise) {
+                        finalBetAmount = minRaise;
+                        aiAction = 'bet';
+                        console.log(`[POKER LOG] AI: Mano moderada, decide apostar ${finalBetAmount}.`);
+                    } else if (aiPesos > 0 && Math.random() > 0.2 - aiAggression) { // Try all-in if cannot minRaise
+                        finalBetAmount = aiPesos;
+                        aiAction = 'all-in';
+                        console.log(`[POKER LOG] AI: Mano moderada, pero no suficiente para la subida mínima. Va All-In con ${finalBetAmount}.`);
+                    } else {
+                        aiAction = 'check';
+                        console.log('[POKER LOG] AI: Mano moderada, decide pasar.');
+                    }
+                } else { // Weak hand: mostly check, very small bluff bet
+                    if (Math.random() < 0.05 + aiAggression && aiPesos >= minRaise) {
+                        finalBetAmount = minRaise;
+                        aiAction = 'bet';
+                        console.log(`[POKER LOG] AI: Mano débil, intenta bluffear con ${finalBetAmount}.`);
+                    } else if (aiPesos > 0 && Math.random() < 0.02) { // Very small all-in bluff
+                        finalBetAmount = aiPesos;
+                        aiAction = 'all-in';
+                        console.log(`[POKER LOG] AI: Mano débil, intenta un all-in bluff con ${finalBetAmount}.`);
+                    } else {
+                        aiAction = 'check';
+                        console.log('[POKER LOG] AI: Mano débil, decide pasar.');
+                    }
                 }
             }
 
             console.log('[POKER LOG] AI decided action:', aiAction);
 
-            // Ejecutar la acción elegida por la IA
+            // Execute AI's chosen action
             switch (aiAction) {
-                case 'check':
-                    setGameMessage('La IA ha pasado (Check).');
-                    setRoundMessage('Es tu turno.');
-                    console.log('[POKER LOG] AI Action: Check.');
-                    nextPhase(); // Avanzar a la siguiente fase si no hay apuesta que igualar
-                    setIsProcessingTurn(false);
-                    break;
                 case 'call':
-                    // amountToCall ya calculado
-                    setAiPesos(prev => prev - amountToCall);
-                    setPot(prev => prev + amountToCall);
-                    setAiContributionInRound(currentBet); // La contribución total de la IA ahora coincide con la apuesta actual
-                    setGameMessage(`La IA ha igualado tu apuesta de ${amountToCall} pesos. Pozo: ${parseInt(pot + amountToCall).toLocaleString()}.`);
-                    setLastPlayerToBet('ai');
-                    playSound(chipBetSound); // Sonido de apuesta
-                    console.log(`[POKER LOG] AI Action: Call (${amountToCall}). Pozo: ${parseInt(pot + amountToCall).toLocaleString()}.`);
-                    nextPhase(); // Avanzar a la siguiente fase después de igualar
-                    setIsProcessingTurn(false);
+                    const actualCallAmount = Math.min(amountToCall, aiPesos); // Ensure AI doesn't over-call if all-in
+                    setAiPesos(prev => prev - actualCallAmount);
+                    setPot(prev => prev + actualCallAmount);
+                    setAiContributionInRound(prev => prev + actualCallAmount);
+                    setRoundMessage(`La IA iguala con ${parseInt(actualCallAmount).toLocaleString()} pesos.`);
+                    playSound(chipBetSound);
                     break;
-                case 'bet':
-                    // Calcular la nueva apuesta total de la IA
-                    let newTotalBetAI;
-                    if (currentBet === 0) { // Si no hay apuesta previa, la IA abre con minRaise
-                        newTotalBetAI = minRaise;
-                    } else { // Si hay apuesta previa, la IA sube por minRaise
-                        newTotalBetAI = currentBet + minRaise;
-                    }
-
-                    // Asegurarse de que la IA no intente apostar más de lo que tiene
-                    if (newTotalBetAI > aiPesos + aiContributionInRound) {
-                        newTotalBetAI = aiPesos + aiContributionInRound; // La IA va all-in
-                        console.log('[POKER LOG] AI no tiene suficientes fondos para subir lo mínimo, va All-In.');
-                    }
-
-                    const amountToPayAI = newTotalBetAI - aiContributionInRound;
-
-                    if (aiPesos < amountToPayAI) { // Doble verificación de fondos antes de apostar (esto debería ser raro con la lógica de arriba)
-                        aiAction = 'fold'; // Retroceso si los fondos se vuelven insuficientes
-                        setGameMessage('La IA no tiene suficientes pesos para apostar y se ha retirado. ¡Has ganado el pozo!');
-                        setPlayerPesos(prev => prev + pot);
-                        setGamePhase('finished');
-                        playSound(winSound); // Sonido de victoria para el jugador
-                        console.log('[POKER LOG] La IA intentó apostar pero fondos insuficientes, forzada a retirarse. El jugador gana.');
-                        setIsProcessingTurn(false);
-                        break;
-                    }
-
-                    setAiPesos(prev => prev - amountToPayAI);
-                    setPot(prev => prev + amountToPayAI);
-                    setCurrentBet(newTotalBetAI); // La nueva apuesta más alta
-                    setAiContributionInRound(newTotalBetAI); // La contribución total de la IA ahora coincide con la nueva apuesta
+                case 'bet': // This is a raise
+                    setAiPesos(prev => prev - finalBetAmount);
+                    setPot(prev => prev + finalBetAmount);
+                    setAiContributionInRound(prev => prev + finalBetAmount);
+                    setCurrentBet(aiContributionInRound + finalBetAmount); // AI's new total contribution is the current highest bet
                     setLastPlayerToBet('ai');
-                    setGameMessage(`La IA ha apostado ${amountToPayAI} pesos (total ${newTotalBetAI}). Pozo: ${parseInt(pot + amountToPayAI).toLocaleString()}.`);
-                    setRoundMessage('¡Es tu turno! Puedes Igualar, Subir o Retirarte.');
-                    setPlayerTurn(true); // El turno vuelve al jugador
-                    playSound(chipBetSound); // Sonido de apuesta
-                    console.log(`[POKER LOG] AI Action: Bet (${amountToPayAI}). New CurrentBet: ${newTotalBetAI}. Pozo: ${parseInt(pot + amountToPayAI).toLocaleString()}. Turno del Jugador.`);
-                    setIsProcessingTurn(false);
+                    setRoundMessage(`La IA sube a ${parseInt(aiContributionInRound + finalBetAmount).toLocaleString()} pesos.`);
+                    playSound(chipBetSound);
+                    break;
+                case 'all-in':
+                    const allInAmount = aiPesos; // Take all remaining AI pesos
+                    setAiPesos(0);
+                    setPot(prev => prev + allInAmount);
+                    setAiContributionInRound(prev => prev + allInAmount);
+                    // If AI's all-in is MORE than currentBet, it becomes the new current bet.
+                    // If less, currentBet remains what it was (player's bet).
+                    if (aiContributionInRound + allInAmount > currentBet) {
+                        setCurrentBet(aiContributionInRound + allInAmount);
+                    }
+                    setLastPlayerToBet('ai');
+                    setGameMessage(`La IA va All-In con ${parseInt(allInAmount).toLocaleString()} pesos.`); // Use gameMessage for prominent status
+                    setRoundMessage(''); // Clear round message
+                    playSound(chipBetSound);
                     break;
                 case 'fold':
-                    setGameMessage(`La IA se ha retirado (Fold). ¡Has ganado el pozo de ${parseInt(pot).toLocaleString()} pesos!`);
-                    setPlayerPesos(prev => prev + pot);
-                    setGamePhase('finished');
-                    playSound(winSound); // Sonido de victoria para el jugador
-                    console.log('[POKER LOG] AI Action: Fold. El jugador gana el pozo.');
-                    setIsProcessingTurn(false);
+                    setGameMessage('La IA se ha retirado de la mano.'); // Set global game message for fold
+                    setRoundMessage('');
+                    setAiHand([]); // AI's hand is no longer active
+                    // The pot distribution for folds is handled by checkEndOfRound
+                    break;
+                case 'check':
+                    setRoundMessage('La IA pasa.');
                     break;
                 default:
-                    console.error('[POKER LOG] La IA eligió una acción inesperada:', aiAction);
-                    setGameMessage('La IA ha tenido un error y se ha retirado. ¡Has ganado el pozo!');
-                    setPlayerPesos(prev => prev + pot);
-                    setGamePhase('finished');
-                    playSound(winSound); // Sonido de victoria para el jugador
-                    setIsProcessingTurn(false);
+                    console.error("AI: Acción desconocida:", aiAction);
                     break;
             }
-        }, 1500);
 
-        return () => clearTimeout(timeoutId);
-    }, [aiPesos, currentBet, lastPlayerToBet, nextPhase, pot, playerPesos, determineWinner, aiHand, communityCards, gamePhase, aiContributionInRound, chipBetSound, winSound, loseSound]);
+            setIsProcessingTurn(false);
+            // After AI acts, always check end of round
+            if (aiAction !== 'fold') { // If AI folded, checkEndOfRound will be triggered by gameMessage change
+                checkEndOfRound();
+            }
+        }, 1500); // AI thinking time
+        return () => clearTimeout(timeoutId); // Cleanup timeout if component unmounts
+    }, [aiHand, aiPesos, communityCards, currentBet, aiContributionInRound, lastPlayerToBet, gamePhase, minRaise, pot, checkEndOfRound, chipBetSound, winSound, loseSound]); // Added all necessary dependencies
 
-    // Función principal para que el jugador apueste o suba
-    const handlePlayerBet = (targetTotalBetAmount) => {
-        console.log(`[POKER LOG] Jugador: Intentando Apostar a un total de ${targetTotalBetAmount}.`);
-        console.log(`[POKER LOG] Player Current Contribution in Round: ${playerContributionInRound}`);
-        console.log(`[POKER LOG] Current Highest Bet: ${currentBet}`);
-
-        if (isProcessingTurn) return;
+    // Player Actions
+    const handleFold = () => {
+        playSound(buttonClickSound);
         setIsProcessingTurn(true);
-        playSound(buttonClickSound); // Sonido de clic de botón
-
-        const amountToPay = targetTotalBetAmount - playerContributionInRound;
-
-        // Validaciones
-        if (targetTotalBetAmount <= 0) {
-            setGameMessage('La apuesta debe ser una cantidad positiva.');
-            console.log('[POKER LOG] Jugador: Apuesta fallida, cantidad no positiva.');
+        setGameMessage(`¡${username} se ha retirado de la mano!`); // This message is critical for checkEndOfRound to detect fold
+        setRoundMessage('');
+        setPlayerHand([]); // Player's hand is no longer active
+        // Pot distribution for folds is handled by checkEndOfRound
+        setTimeout(() => {
             setIsProcessingTurn(false);
-            return;
-        }
-        if (playerPesos < amountToPay) {
-            setGameMessage('No tienes suficientes pesos para esa apuesta.');
-            console.log('[POKER LOG] Jugador: Apuesta fallida, fondos insuficientes.');
-            setIsProcessingTurn(false);
-            return;
-        }
-        if (currentBet > 0 && targetTotalBetAmount < currentBet) {
-            setGameMessage(`Tu apuesta debe ser al menos ${currentBet} para igualar o subir.`);
-            console.log(`[POKER LOG] Jugador: Apuesta fallida, cantidad (${targetTotalBetAmount}) menor que apuesta actual (${currentBet}).`);
-            setIsProcessingTurn(false);
-            return;
-        }
-        // Si es una subida (targetTotalBetAmount > currentBet)
-        // Y la diferencia entre la apuesta total del jugador y la apuesta actual no es al menos el minRaise
-        if (targetTotalBetAmount > currentBet && (targetTotalBetAmount - currentBet) < minRaise) {
-            setGameMessage(`Debes subir al menos ${minRaise} pesos.`);
-            console.log('[POKER LOG] Jugador: Apuesta fallida, subida menor que la mínima.');
-            setIsProcessingTurn(false);
-            return;
-        }
-
-        setPlayerPesos(prev => prev - amountToPay);
-        setPot(prev => prev + amountToPay);
-        setCurrentBet(targetTotalBetAmount); // La nueva apuesta más alta en la mesa
-        setPlayerContributionInRound(targetTotalBetAmount); // La contribución total del jugador ahora coincide con la nueva apuesta
-        setLastPlayerToBet('player');
-        setGameMessage(`Has apostado ${amountToPay} pesos (total ${targetTotalBetAmount}). Pozo: ${parseInt(pot + amountToPay).toLocaleString()}.`);
-        setRoundMessage('¡Es el turno de la IA!');
-        setPlayerTurn(false);
-        setCustomBetInput(''); // Limpiar el input de apuesta personalizada
-        playSound(chipBetSound); // Sonido de apuesta
-        console.log(`[POKER LOG] Jugador: Apostó ${amountToPay}. New CurrentBet: ${targetTotalBetAmount}. Pozo: ${parseInt(pot + amountToPay).toLocaleString()}. Turno de la IA.`);
-        aiTurn(); // El turno de la IA se encargará de setIsProcessingTurn(false) cuando termine
+            setPlayerTurn(false); // End player's turn to trigger checkEndOfRound flow
+            // checkEndOfRound will be called by effect on gameMessage change or directly if needed
+        }, 500);
     };
 
-    // Función para que el jugador haga All-In
-    const handlePlayerAllIn = () => {
-        console.log('[POKER LOG] Jugador: Intentando All-In.');
-        if (isProcessingTurn) return;
+    const handleCheck = () => {
+        playSound(buttonClickSound);
         setIsProcessingTurn(true);
-        playSound(buttonClickSound); // Sonido de clic de botón
+        if (currentBet > playerContributionInRound) {
+            setRoundMessage('No puedes pasar, hay una apuesta activa. Debes igualar, subir o retirarte.');
+            setIsProcessingTurn(false);
+            return;
+        }
+        setRoundMessage('Has pasado.');
+        setLastPlayerToBet('player'); // Player checked
+        setCustomBetInput('');
+        setTimeout(() => {
+            setIsProcessingTurn(false);
+            setPlayerTurn(false); // Pass turn to AI
+            checkEndOfRound(); // Check if round ends after player check
+        }, 1000);
+    };
 
+    const handleCall = () => {
+        playSound(chipBetSound);
+        setIsProcessingTurn(true);
         const amountToCall = currentBet - playerContributionInRound;
-        // Si hay una apuesta activa y el jugador no tiene suficiente para igualar, debe retirarse
-        if (playerPesos < amountToCall && currentBet > 0) {
-            setGameMessage('No tienes suficientes pesos para igualar. Debes retirarte.');
-            console.log('[POKER LOG] Jugador: All-in fallido, fondos insuficientes para igualar.');
+
+        if (amountToCall <= 0) { // Should not happen if button disabled correctly
+            setRoundMessage('No hay apuesta para igualar.');
             setIsProcessingTurn(false);
             return;
         }
 
-        const amountToPay = playerPesos; // El jugador apuesta todo su dinero restante
-        const newTotalBet = playerContributionInRound + amountToPay; // Total comprometido por el jugador en esta ronda
+        let actualMoneyPutIn;
+        if (playerPesos < amountToCall) {
+            // Player cannot afford to call fully, goes All-In with remaining pesos
+            actualMoneyPutIn = playerPesos;
+            setPlayerPesos(0);
+            setRoundMessage(`No tienes suficientes para igualar, ¡Has ido All-In con ${parseInt(actualMoneyPutIn).toLocaleString()} pesos!`);
+        } else {
+            // Player can afford to call fully
+            actualMoneyPutIn = amountToCall;
+            setPlayerPesos(prev => prev - actualMoneyPutIn);
+            setRoundMessage(`Has igualado la apuesta de ${parseInt(currentBet).toLocaleString()} pesos.`);
+        }
 
-        setPlayerPesos(0); // El jugador no tiene pesos restantes
-        setPot(prev => prev + amountToPay);
-        // La nueva apuesta actual es el máximo entre la apuesta actual y la nueva contribución total del jugador
-        setCurrentBet(Math.max(currentBet, newTotalBet));
-        setPlayerContributionInRound(newTotalBet);
+        setPot(prev => prev + actualMoneyPutIn);
+        setPlayerContributionInRound(prev => prev + actualMoneyPutIn); // Add to current round contribution
+        setLastPlayerToBet('player'); // Player is last to act
+        setCustomBetInput(''); // Clear custom bet input
+
+        setTimeout(() => {
+            setIsProcessingTurn(false);
+            setPlayerTurn(false);
+            checkEndOfRound();
+        }, 1000);
+    };
+
+    const handleBet = () => {
+        playSound(chipBetSound);
+        setIsProcessingTurn(true);
+        let betAmount = parseInt(customBetInput);
+        if (isNaN(betAmount) || betAmount <= 0) {
+            setRoundMessage('Por favor, ingresa una cantidad válida para apostar.');
+            setIsProcessingTurn(false);
+            return;
+        }
+
+        const amountToMatchCurrentBet = currentBet - playerContributionInRound; // How much player needs to put to match currentBet
+        let totalPlayerCommitment = playerContributionInRound + betAmount;
+
+        // Validation for bet amount
+        if (currentBet > 0) { // If there's an existing bet (this is a raise or call)
+            // Player must at least match currentBet and raise by minRaise
+            const minimumRaiseAmount = amountToMatchCurrentBet + minRaise;
+            if (betAmount < minimumRaiseAmount && betAmount !== playerPesos) { // If it's not an all-in
+                setRoundMessage(`Para subir, tu apuesta debe ser al menos ${minimumRaiseAmount} pesos (igualar ${amountToMatchCurrentBet} y subir ${minRaise}).`);
+                setIsProcessingTurn(false);
+                return;
+            }
+        } else { // No current bet (this is an initial bet)
+            if (betAmount < minRaise && betAmount !== playerPesos) { // If it's not an all-in
+                setRoundMessage(`La apuesta inicial debe ser de al menos ${minRaise} pesos.`);
+                setIsProcessingTurn(false);
+                return;
+            }
+        }
+
+        let actualMoneyPutIn;
+        let newPlayerTotalContribution;
+
+        if (betAmount >= playerPesos) { // Player goes All-In
+            actualMoneyPutIn = playerPesos;
+            newPlayerTotalContribution = playerContributionInRound + actualMoneyPutIn;
+            setPlayerPesos(0); // Player has 0 pesos left
+            setRoundMessage(`¡Has ido All-In con ${parseInt(actualMoneyPutIn).toLocaleString()} pesos!`);
+        } else { // Normal bet/raise
+            actualMoneyPutIn = betAmount;
+            newPlayerTotalContribution = playerContributionInRound + actualMoneyPutIn;
+            setPlayerPesos(prev => prev - actualMoneyPutIn);
+
+            if (newPlayerTotalContribution > currentBet) { // This is a raise
+                setRoundMessage(`Has subido a ${parseInt(newPlayerTotalContribution).toLocaleString()} pesos.`);
+            } else { // This is a call (should be handled by handleCall mostly, but included for completeness)
+                setRoundMessage(`Has apostado ${parseInt(actualMoneyPutIn).toLocaleString()} pesos.`);
+            }
+        }
+
+        setPot(prev => prev + actualMoneyPutIn);
+        setPlayerContributionInRound(newPlayerTotalContribution); // Update player's total contribution in this round
+
+        // Update currentBet only if player's total contribution is now higher
+        if (newPlayerTotalContribution > currentBet) {
+            setCurrentBet(newPlayerTotalContribution);
+        }
         setLastPlayerToBet('player');
-        setGameMessage(`Has ido All-In con ${amountToPay} pesos (total ${newTotalBet}). Pozo: ${parseInt(pot + amountToPay).toLocaleString()}.`);
-        setRoundMessage('¡Es el turno de la IA!');
-        setPlayerTurn(false);
-        playSound(chipBetSound); // Sonido de apuesta
-        console.log(`[POKER LOG] Jugador: All-In (${amountToPay}). New CurrentBet: ${Math.max(currentBet, newTotalBet)}. Pozo: ${parseInt(pot + amountToPay).toLocaleString()}. Turno de la IA.`);
-        aiTurn();
+        setCustomBetInput('');
+
+        setTimeout(() => {
+            setIsProcessingTurn(false);
+            setPlayerTurn(false);
+            checkEndOfRound();
+        }, 1000);
     };
 
-    const handlePlayerCall = () => {
-        console.log('[POKER LOG] Jugador: Intentando Igualar.');
-        console.log(`[POKER LOG] Player Current Contribution in Round: ${playerContributionInRound}`);
-        console.log(`[POKER LOG] Current Highest Bet: ${currentBet}`);
-
-        if (isProcessingTurn) return;
+    const handleAllIn = () => {
+        playSound(chipBetSound);
         setIsProcessingTurn(true);
-        playSound(buttonClickSound); // Sonido de clic de botón
 
-        if (currentBet === 0) {
-            setGameMessage('No hay apuesta para igualar. Puedes pasar o apostar.');
-            console.log('[POKER LOG] Jugador: Igualar fallido, no hay apuesta activa.');
+        if (playerPesos <= 0) {
+            setRoundMessage('No tienes pesos para ir All-In.');
             setIsProcessingTurn(false);
             return;
         }
-        const callAmount = currentBet - playerContributionInRound; // Cantidad que el jugador necesita añadir
-        console.log(`[POKER LOG] Jugador: Calculated Call Amount: ${callAmount}`);
 
-        if (playerPesos < callAmount) {
-            setGameMessage('No tienes suficientes pesos para igualar esa apuesta.');
-            console.log('[POKER LOG] Jugador: Igualar fallido, fondos insuficientes.');
-            setIsProcessingTurn(false);
-            return;
+        const allInAmount = playerPesos; // Player puts all their money in
+        const newPlayerTotalContribution = playerContributionInRound + allInAmount;
+
+        setPlayerPesos(0); // Player's pesos go to 0
+        setPot(prev => prev + allInAmount);
+        setPlayerContributionInRound(newPlayerTotalContribution);
+
+        // If player's all-in is more than the current highest bet, it becomes the new current bet
+        if (newPlayerTotalContribution > currentBet) {
+            setCurrentBet(newPlayerTotalContribution);
         }
-        setPlayerPesos(prev => prev - callAmount);
-        setPot(prev => prev + callAmount);
-        setPlayerContributionInRound(currentBet); // La contribución del jugador ahora coincide con la apuesta actual
-        setGameMessage(`Has igualado la apuesta de ${callAmount} pesos. Pozo: ${parseInt(pot + callAmount).toLocaleString()}.`);
         setLastPlayerToBet('player');
-        playSound(chipBetSound); // Sonido de apuesta
-        console.log(`[POKER LOG] Jugador: Igualó ${callAmount}. Pozo: ${parseInt(pot + callAmount).toLocaleString()}.`);
-        nextPhase();
-        setIsProcessingTurn(false);
-    };
+        setGameMessage(`¡Has ido All-In con ${parseInt(allInAmount).toLocaleString()} pesos!`);
+        setRoundMessage(''); // Clear round message
+        setCustomBetInput(''); // Clear custom bet input
 
-    const handlePlayerFold = () => {
-        console.log('[POKER LOG] Jugador: Se ha retirado (Fold).');
-        if (isProcessingTurn) return;
-        setIsProcessingTurn(true);
-        playSound(buttonClickSound); // Sonido de clic de botón
-
-        setGameMessage(`Te has retirado (Fold). La IA gana el pozo de ${parseInt(pot).toLocaleString()} pesos.`);
-        setAiPesos(prev => prev + pot);
-        setGamePhase('finished');
-        playSound(loseSound); // Sonido de derrota para el jugador
-        console.log('[POKER LOG] Jugador: Fold. IA gana el pozo. Juego en fase "finished".');
-        setIsProcessingTurn(false);
-    };
-
-    // Función para que el jugador pase (check)
-    const handlePlayerCheck = () => {
-        console.log('[POKER LOG] Jugador: Intentando Pasar (Check).');
-        if (isProcessingTurn) return;
-        setIsProcessingTurn(true);
-        playSound(buttonClickSound); // Sonido de clic de botón
-
-        if (currentBet > 0) {
-            setGameMessage('No puedes pasar, hay una apuesta activa.');
-            console.log('[POKER LOG] Jugador: Pasar fallido, hay apuesta activa.');
+        setTimeout(() => {
             setIsProcessingTurn(false);
-            return;
+            setPlayerTurn(false);
+            checkEndOfRound();
+        }, 1000);
+    };
+
+    // Use effect to trigger AI turn or check end of round when playerTurn changes
+    useEffect(() => {
+        if (!playerTurn && gamePhase !== 'finished' && gamePhase !== 'showdown') {
+            console.log('[POKER LOG] PlayerTurn is false, triggering AI turn if not already folded.');
+            if (!(gameMessage.includes('se ha retirado') && gameMessage.includes('Jugador'))) { // Only if player hasn't folded
+                 aiTurn();
+            }
         }
+    }, [playerTurn, gamePhase, gameMessage, aiTurn]);
 
-        setGameMessage('Has pasado (Check).');
-        setRoundMessage('¡Es el turno de la IA!');
-        setPlayerTurn(false);
-        console.log('[POKER LOG] Jugador: Check. Turno de la IA.');
-        aiTurn();
-    };
-
-
-    // Calcular montos de apuesta dinámicos para mostrar en los botones
-    // Estos representan el *total* al que ascendería la apuesta si se elige esa opción
-    const playerMinBetAmount = currentBet === 0 ? minRaise : currentBet + minRaise;
-    // Si el pozo es 0 (ej. al inicio de una ronda sin ciegas aún), evita NaN o infinitos
-    const playerHalfPotBetAmount = currentBet === 0 ? Math.floor(pot / 2) : currentBet + Math.floor(pot / 2);
-    const playerPotBetAmount = currentBet === 0 ? pot : currentBet + pot;
-
-    // Helper para calcular la cantidad a pagar para un objetivo de apuesta total
-    const getAmountToPayForTarget = (targetTotalBet) => {
-        const amount = targetTotalBet - playerContributionInRound;
-        return amount > 0 ? amount : 0; // Asegurarse de que no sea negativo
-    };
-
-    // Condicionales de deshabilitado para los botones de apuesta
-    const disableMinBet = isProcessingTurn || playerPesos < getAmountToPayForTarget(playerMinBetAmount) || (currentBet > 0 && (playerMinBetAmount - currentBet) < minRaise);
-    const disableHalfPotBet = isProcessingTurn || playerPesos < getAmountToPayForTarget(playerHalfPotBetAmount) || (currentBet > 0 && (playerHalfPotBetAmount - currentBet) < minRaise);
-    const disablePotBet = isProcessingTurn || playerPesos < getAmountToPayForTarget(playerPotBetAmount) || (currentBet > 0 && (playerPotBetAmount - currentBet) < minRaise);
-
-    // Condición de deshabilitado para el botón All-In
-    // Se deshabilita si no tienes dinero o si tu all-in no es suficiente para igualar la apuesta actual
-    const disableAllIn = isProcessingTurn || playerPesos <= 0 || (currentBet > 0 && playerPesos < (currentBet - playerContributionInRound));
-
-    // Condición de deshabilitado para el botón de apuesta personalizada
-    const customBetNumeric = parseInt(customBetInput, 10);
-    const disableCustomBet = isProcessingTurn || isNaN(customBetNumeric) || customBetNumeric <= 0 || playerPesos < getAmountToPayForTarget(customBetNumeric) || (currentBet > 0 && customBetNumeric < currentBet) || (currentBet > 0 && customBetNumeric > currentBet && (customBetNumeric - currentBet) < minRaise);
-
-    const debugButtonStyle = {
-        padding: '8px 15px',
-        backgroundColor: '#5a67d8',
-        color: 'white',
-        border: 'none',
-        borderRadius: '6px',
-        fontSize: '0.9rem',
-        fontWeight: 'bold',
-        cursor: 'pointer',
-        transition: 'background-color 0.2s ease',
-        '&:hover': { backgroundColor: '#4c51bf' },
-        '&:disabled': { backgroundColor: '#718096', cursor: 'not-allowed' }
-    };
+    // Use effect for checking end of round logic related to game messages
+    useEffect(() => {
+        // If a fold message appears, trigger checkEndOfRound to distribute pot
+        if ((gameMessage.includes('se ha retirado') && (gameMessage.includes('Jugador') || gameMessage.includes('IA')))) {
+            console.log('[POKER LOG] Fold detected via gameMessage. Triggering checkEndOfRound.');
+            // Allow a small delay for UI updates before checking end of round
+            setTimeout(() => {
+                checkEndOfRound();
+            }, 500);
+        }
+    }, [gameMessage, checkEndOfRound]);
 
 
     return (
-        <div className="home-page-container">
-            {/* --- Elementos de Audio (ocultos) --- */}
-            <audio ref={dealCardSound} src="/sounds/deal_card.mp3" preload="auto"></audio>
+        <div className="homepage-container">
+            {/* Audio elements */}
+            <audio ref={dealCardSound} src="/sounds/card_deal.mp3" preload="auto"></audio>
             <audio ref={chipBetSound} src="/sounds/chip_bet.mp3" preload="auto"></audio>
-            <audio ref={winSound} src="/sounds/win_game.mp3" preload="auto"></audio>
-            <audio ref={loseSound} src="/sounds/lose_game.mp3" preload="auto"></audio>
+            <audio ref={winSound} src="/sounds/win_sound.mp3" preload="auto"></audio>
+            <audio ref={loseSound} src="/sounds/lose_sound.mp3" preload="auto"></audio>
             <audio ref={buttonClickSound} src="/sounds/button_click.mp3" preload="auto"></audio>
-            {/* --- Fin Elementos de Audio --- */}
 
-            {/* Barra superior/Navbar simulada */}
-            <header className="navbar">
-                <div className="user-info-panel">
-                    <p className="user-greeting">
-                        ¡Hola, {username}!
-                    </p>
-                    <p className="player-pesos">
-                        💰 {parseInt(playerPesos).toLocaleString()}
-                        {showdownWinner === 'player' && winningChipsVisible && (
-                            <span className="winning-chips-animation">
-                                💸
-                            </span>
-                        )}
-                    </p>
-                </div>
-                <button
-                    onClick={onLogout}
-                    className="logout-button"
-                >
-                    Cerrar Sesión
-                </button>
-            </header>
 
-            {/* Contenido principal del juego */}
-            <main className="game-main-content">
-                <h1 className="game-title">
-                    Mesa de Póker 🃏
-                </h1>
-                <p className="game-message">
-                    {gameMessage}
-                </p>
-                <p className="round-message">
-                    {roundMessage}
-                </p>
-
-                {/* Área de la IA */}
-                <div className="ai-area">
-                    <h3 className="ai-title">Oponente (IA):</h3>
-                    <div className="player-hand-cards">
-                        {aiHand.length > 0 ? (
-                            aiHand.map((card, index) => <Card key={index} card={card} hidden={gamePhase !== 'showdown' && gamePhase !== 'finished'} />)
-                        ) : (
-                            <p className="placeholder-text">Esperando cartas...</p>
-                        )}
+            <div className="game-container">
+                {/* AI Area */}
+                <div className="player-area ai-area">
+                    <div className="player-info">
+                        <h3>IA</h3>
+                        <p>Pesos: <span className={`player-pesos ${winningChipsVisible && showdownWinner === 'ai' ? 'winning-chips-animation' : ''}`}>{parseInt(aiPesos).toLocaleString()}</span></p>
                     </div>
-                    <p className="ai-pesos">
-                        Pesos de la IA: <span className="pesos-amount">💰 {parseInt(aiPesos).toLocaleString()}</span>
-                        {showdownWinner === 'ai' && winningChipsVisible && (
-                            <span className="winning-chips-animation">
-                                💸
-                            </span>
-                        )}
-                    </p>
+                    <div className="hand-area">
+                        {aiHand.map((card, index) => (
+                            <Card key={index} card={card} hidden={gamePhase !== 'showdown' && gamePhase !== 'finished'} />
+                        ))}
+                    </div>
                 </div>
 
-                {/* Área de cartas comunitarias */}
+                {/* Community Cards Area */}
                 <div className="community-cards-area">
-                    <h3 className="community-cards-title">Cartas Comunitarias:</h3>
-                    <div className="community-cards-display">
-                        {communityCards.length > 0 ? (
-                            communityCards.map((card, index) => <Card key={index} card={card} />)
-                        ) : (
-                            <p className="placeholder-text">No hay cartas comunitarias aún.</p>
-                        )}
+                    <div className="pot-display">
+                        <h2>Pozo: {parseInt(pot).toLocaleString()}</h2>
+                        <PotDisplayChips amount={pot} />
+                    </div>
+                    <div className="community-cards">
+                        {communityCards.map((card, index) => (
+                            <Card key={index} card={card} />
+                        ))}
                     </div>
                 </div>
 
-                {/* Información del pozo y apuesta actual */}
-                <div className="pot-info-area">
-                    <div className="pot-value-display">
-                        <h3 className="pot-title">Pozo Actual: <span className="pesos-amount">💰 {parseInt(pot).toLocaleString()}</span></h3>
-                        {/* Componente PotDisplayChips para la representación visual estática del pozo */}
-                        {pot > 0 && (
-                            <div className="pot-chips-visualizer">
-                                <PotDisplayChips amount={pot} />
-                            </div>
-                        )}
+                {/* Player Area */}
+                <div className="player-area player-main-area">
+                    <div className="hand-area player-hand-area">
+                        {playerHand.map((card, index) => (
+                            <Card key={index} card={card} />
+                        ))}
                     </div>
-                    {gamePhase !== 'finished' && (
-                        <p className="current-bet-info">
-                            Apuesta Actual: <span className="bet-amount">{parseInt(currentBet).toLocaleString()} pesos</span>
-                        </p>
-                    )}
-                    {/* Componente AnimatedPotTransfer para la animación de las fichas volando */}
-                    <AnimatedPotTransfer potAmount={pot} winner={potTransferAnimation} />
-                </div>
-
-                {/* Mano del jugador */}
-                <div className="player-hand-area">
-                    <h3 className="player-hand-title">Tu Mano:</h3>
-                    <div className="player-hand-cards">
-                        {playerHand.length > 0 ? (
-                            playerHand.map((card, index) => <Card key={index} card={card} />)
-                        ) : (
-                            <p className="placeholder-text">No tienes cartas aún. Inicia una partida.</p>
-                        )}
+                    <div className="player-info">
+                        <h3>{username}</h3>
+                        <p>Pesos: <span className={`player-pesos ${winningChipsVisible && showdownWinner === 'player' ? 'winning-chips-animation' : ''}`}>{parseInt(playerPesos).toLocaleString()}</span></p>
                     </div>
-                </div>
-
-                {/* Mensaje de Ganador/Perdedor al final */}
-                {gamePhase === 'finished' && showdownWinner && (
-                    <div className={`showdown-result-message ${showdownWinner}`}>
-                        {gameMessage} {/* Usa gameMessage que ahora contiene la información de victoria/derrota */}
-                    </div>
-                )}
-
-
-                {/* Botones de acción del juego */}
-                <div className="game-action-buttons">
-                    {gamePhase === 'finished' ? (
-                        <button
-                            onClick={startGame}
-                            className="start-game-button"
-                        >
-                            Iniciar Nueva Partida
-                        </button>
-                    ) : (
-                        playerTurn && (
-                            <>
-                                {/* Botón Check / Call */}
-                                {currentBet === 0 ? (
-                                    <button
-                                        onClick={handlePlayerCheck}
-                                        disabled={isProcessingTurn}
-                                        className="action-button check-button"
-                                    >
-                                        Pasar (Check)
-                                    </button>
-                                ) : (
-                                    <button
-                                        onClick={handlePlayerCall}
-                                        disabled={isProcessingTurn || playerPesos < (currentBet - playerContributionInRound)}
-                                        className="action-button call-button"
-                                    >
-                                        Igualar ({parseInt(Math.max(0, currentBet - playerContributionInRound)).toLocaleString()})
-                                    </button>
-                                )}
-
-                                {/* Opciones de Apuesta / Subida */}
-                                <button
-                                    onClick={() => handlePlayerBet(playerMinBetAmount)}
-                                    disabled={disableMinBet}
-                                    className="action-button bet-button"
-                                >
-                                    Apostar (Mínima {parseInt(playerMinBetAmount).toLocaleString()})
-                                </button>
-                                <button
-                                    onClick={() => handlePlayerBet(playerHalfPotBetAmount)}
-                                    disabled={disableHalfPotBet}
-                                    className="action-button bet-button"
-                                >
-                                    Apostar (Media Pozo {parseInt(playerHalfPotBetAmount).toLocaleString()})
-                                </button>
-                                <button
-                                    onClick={() => handlePlayerBet(playerPotBetAmount)}
-                                    disabled={disablePotBet}
-                                    className="action-button bet-button"
-                                >
-                                    Apostar (Pozo {parseInt(playerPotBetAmount).toLocaleString()})
-                                </button>
-                                {/* Input y botón para apuesta personalizada */}
-                                <div className="custom-bet-input-group">
-                                    <input
-                                        type="number"
-                                        value={customBetInput}
-                                        onChange={(e) => setCustomBetInput(e.target.value)}
-                                        placeholder="Cantidad"
-                                        min={currentBet > 0 ? currentBet + minRaise : minRaise} // Mínimo para subir
-                                        className="custom-bet-input"
-                                    />
-                                    <button
-                                        onClick={() => handlePlayerBet(customBetNumeric)}
-                                        disabled={disableCustomBet}
-                                        className="action-button custom-bet-button"
-                                    >
-                                        Apostar
-                                    </button>
-                                </div>
-                                <button
-                                    onClick={handlePlayerAllIn}
-                                    disabled={disableAllIn}
-                                    className="action-button all-in-button"
-                                >
-                                    All-In ({parseInt(playerPesos).toLocaleString()})
-                                </button>
-                                <button
-                                    onClick={handlePlayerFold}
-                                    disabled={isProcessingTurn}
-                                    className="action-button fold-button"
-                                >
-                                    Retirarse (Fold)
-                                </button>
-                            </>
-                        )
-                    )}
-                </div>
-            </main>
-
-            {/* Guía de Juego para Principiantes */}
-            <section className="game-guide">
-                <h2 className="game-guide-title">
-                    Guía Rápida de Póker para Principiantes
-                </h2>
-                <p className="game-guide-text">
-                    ¡Bienvenido al póker! Aquí te explicamos lo básico para que disfrutes la partida contra la IA:
-                </p>
-
-                <h3 className="guide-subtitle">
-                    Objetivo del Juego:
-                </h3>
-                <p className="game-guide-text">
-                    Ganar los "pesos" (fichas) de tus oponentes. Lo haces teniendo la mejor combinación de cartas al final, o haciendo que tus oponentes se retiren.
-                </p>
-
-                <h3 className="guide-subtitle">
-                    Las Cartas:
-                </h3>
-                <ul className="guide-list">
-                    <li>**Tu Mano:** Son las 2 cartas que solo tú ves.</li>
-                    <li>**Cartas Comunitarias:** Son las cartas en el centro de la mesa que todos los jugadores pueden usar para formar su mejor mano. Se revelan en 3 fases:
-                        <ul className="guide-sublist">
-                            <li>**Flop:** Las primeras 3 cartas.</li>
-                            <li>**Turn:** La cuarta carta.</li>
-                            <li>**River:** La quinta y última carta.</li>
-                        </ul>
-                    </li>
-                </ul>
-
-                <h3 className="guide-subtitle">
-                    Acciones en tu Turno:
-                </h3>
-                <ul className="guide-list">
-                    <li>**Pasar (Check):** Si nadie ha apostado antes que tú en la ronda, puedes "pasar" y no apostar nada. El turno pasa al siguiente jugador.</li>
-                    <li>**Apostar (Bet):** Pones fichas en el pozo. Si ya hay una apuesta, esto se convierte en "Subir" (Raise), lo que significa que apuestas más que la apuesta actual.</li>
-                    <li>**Igualar (Call):** Si un oponente ha apostado, "igualas" su apuesta poniendo la misma cantidad de fichas en el pozo para seguir en la mano.</li>
-                    <li>**Retirarse (Fold):** Si no quieres seguir jugando la mano (porque tus cartas no son buenas o no quieres igualar una apuesta), te "retiras". Pierdes las fichas que ya apostaste en esa mano.</li>
-                </ul>
-
-                <h3 className="guide-subtitle">
-                    Fases del Juego:
-                </h3>
-                <ul className="guide-list">
-                    <li>**Pre-Flop:** Recibes tus 2 cartas. Se pagan las "ciegas" (apuestas iniciales obligatorias).</li>
-                    <li>**Flop:** Se revelan 3 cartas comunitarias. Hay una ronda de apuestas.</li>
-                    <li>**Turn:** Se revela la 4ª carta comunitaria. Otra ronda de apuestas.</li>
-                    <li>**River:** Se revela la 5ª y última carta comunitaria. Última ronda de apuestas.</li>
-                    <li>**Showdown:** Si quedan al menos dos jugadores, se revelan las manos y se determina
-                        quién tiene la mejor combinación de 5 cartas (usando sus 2 cartas y las 5 comunitarias). El ganador se lleva el pozo.</li>
-                </ul>
-
-                <h3 className="guide-subtitle">
-                    ¡A Jugar!
-                </h3>
-                <p className="game-guide-text">
-                    Haz clic en "Iniciar Nueva Partida" para empezar. Sigue los mensajes en pantalla y los botones de acción para guiarte. ¡Diviértete!
-                </p>
-            </section>
-
-            {/* DEBUG / TESTING PANEL */}
-            <div className="debug-panel">
-                <h2 className="debug-panel-title">Testing Controls (Dev Only)</h2>
-
-                <div className="debug-buttons-group">
-                    <button
-                        onClick={() => {
-                            // Example: Give player a Royal Flush
-                            setPlayerHand([{ rank: '10', suit: '♥️' }, { rank: 'J', suit: '♥️' }]);
-                            setCommunityCards([
-                                { rank: 'Q', suit: '♥️' },
-                                { rank: 'K', suit: '♥️' },
-                                { rank: 'A', suit: '♥️' },
-                                { rank: '2', suit: '♠️' }, // Dummy cards
-                                { rank: '7', suit: '♣️' }
-                            ]);
-                            setGameMessage('Player set for Royal Flush!');
-                            console.log('[DEBUG] Player hand set for Royal Flush.');
-                        }}
-                        className="debug-button" // Apply debug-button class
-                    >
-                        Set Player Royal Flush 👑
-                    </button>
-                    <button
-                        onClick={() => {
-                            // Example: Give AI a Straight Flush (e.g., 5-9 of Spades)
-                            setAiHand([{ rank: '5', suit: '♠️' }, { rank: '6', suit: '♠️' }]);
-                            setCommunityCards([
-                                { rank: '7', suit: '♠️' },
-                                { rank: '8', suit: '♠️' },
-                                { rank: '9', suit: '♠️' },
-                                { rank: 'A', suit: '♦️' }, // Dummy cards
-                                { rank: 'K', suit: '♣️' }
-                            ]);
-                            setGameMessage('AI set for Straight Flush!');
-                            console.log('[DEBUG] AI hand set for Straight Flush.');
-                        }}
-                        className="debug-button" // Apply debug-button class
-                    >
-                        Set AI Straight Flush ⚔️
-                    </button>
-                    <button
-                        onClick={() => {
-                            // Example: Force a tie (both get two pair with A, K on board)
-                            setPlayerHand([{ rank: '2', suit: '♥️' }, { rank: '3', suit: '♦️' }]);
-                            setAiHand([{ rank: '4', suit: '♣️' }, { rank: '5', suit: '♠️' }]);
-                            setCommunityCards([
-                                { rank: 'A', suit: '♠️' },
-                                { rank: 'A', suit: '♣️' },
-                                { rank: 'K', suit: '♦️' },
-                                { rank: 'K', suit: '♥️' },
-                                { rank: 'Q', suit: '♠️' }
-                            ]);
-                            setGameMessage('Hands set for a potential Tie!');
-                            console.log('[DEBUG] Hands set for a tie.');
-                        }}
-                        className="debug-button" // Apply debug-button class
-                    >
-                        Force Tie Scenario 🤝
-                    </button>
-                    <button
-                        onClick={() => {
-                            setPlayerPesos(50); // Set player to low funds
-                            setAiPesos(1000);
-                            setGameMessage('Player funds set to low for testing.');
-                            console.log('[DEBUG] Player funds set to 50.');
-                        }}
-                        className="debug-button" // Apply debug-button class
-                    >
-                        Set Player Low Funds 📉
-                    </button>
-                    <button
-                        onClick={() => {
-                            setAiPesos(50); // Set AI to low funds
-                            setPlayerPesos(1000);
-                            setGameMessage('AI funds set to low for testing.');
-                            console.log('[DEBUG] AI funds set to 50.');
-                        }}
-                        className="debug-button" // Apply debug-button class
-                    >
-                        Set AI Low Funds 📉
-                    </button>
-                    <button
-                        onClick={() => determineWinner()}
-                        disabled={gamePhase !== 'river' && gamePhase !== 'showdown'}
-                        className="debug-button" // Apply debug-button class
-                    >
-                        Force Showdown 🏁
-                    </button>
-                    <button
-                        onClick={() => nextPhase()}
-                        disabled={gamePhase === 'finished' || gamePhase === 'showdown'}
-                        className="debug-button" // Apply debug-button class
-                    >
-                        Advance Phase Manually ▶️
-                    </button>
                 </div>
             </div>
+
+            {/* Game Controls and Messages */}
+            <div className="game-controls">
+                <p className="game-message">{gameMessage}</p>
+                <p className="round-message">{roundMessage}</p>
+
+                {gamePhase === 'finished' ? (
+                    <button onClick={startGame} disabled={isProcessingTurn}>Iniciar Nueva Partida</button>
+                ) : (
+                    <div className="action-buttons">
+                        {playerTurn && (
+                            <>
+                                <button onClick={handleFold} disabled={isProcessingTurn}>Retirarse</button>
+                                <button
+                                    onClick={handleCheck}
+                                    disabled={isProcessingTurn || currentBet > playerContributionInRound}
+                                >
+                                    Pasar
+                                </button>
+                                <button
+                                    onClick={handleCall}
+                                    disabled={isProcessingTurn || currentBet === playerContributionInRound || playerPesos === 0}
+                                >
+                                    {currentBet > 0 ? `Igualar ${parseInt(currentBet - playerContributionInRound).toLocaleString()}` : 'No hay apuesta para igualar'}
+                                </button>
+                                <input
+                                    type="number"
+                                    value={customBetInput}
+                                    onChange={(e) => setCustomBetInput(e.target.value)}
+                                    placeholder="Apuesta/Subida"
+                                    min={currentBet > 0 ? (currentBet - playerContributionInRound) + minRaise : minRaise} // Min bet/raise
+                                    max={playerPesos}
+                                    disabled={isProcessingTurn}
+                                />
+                                <button
+                                    onClick={handleBet}
+                                    disabled={isProcessingTurn || (customBetInput === '' || parseInt(customBetInput) <= 0) || (parseInt(customBetInput) < ((currentBet > 0 ? (currentBet - playerContributionInRound) + minRaise : minRaise)) && parseInt(customBetInput) !== playerPesos) || playerPesos === 0}
+                                >
+                                    Apostar/Subir
+                                </button>
+                                <button
+                                    onClick={handleAllIn}
+                                    disabled={isProcessingTurn || playerPesos === 0}
+                                >
+                                    All-In {playerPesos > 0 ? parseInt(playerPesos).toLocaleString() : ''}
+                                </button>
+                            </>
+                        )}
+                        {/* Debug Buttons - Remove in production */}
+                        <div className="debug-panel">
+                            <h3>Debug Panel</h3>
+                            <button
+                                onClick={() => {
+                                    setPlayerPesos(50); // Set player to low funds
+                                    setAiPesos(1000);
+                                    setGameMessage('Player funds set to low for testing.');
+                                    console.log('[DEBUG] Player funds set to 50.');
+                                }}
+                                className="debug-button"
+                            >
+                                Set Player Low Funds 📉
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setAiPesos(50); // Set AI to low funds
+                                    setPlayerPesos(1000);
+                                    setGameMessage('AI funds set to low for testing.');
+                                    console.log('[DEBUG] AI funds set to 50.');
+                                }}
+                                className="debug-button"
+                            >
+                                Set AI Low Funds 📉
+                            </button>
+                            <button
+                                onClick={() => determineWinner()}
+                                disabled={gamePhase !== 'river' && gamePhase !== 'showdown'}
+                                className="debug-button"
+                            >
+                                Force Showdown 🏁
+                            </button>
+                            <button
+                                onClick={() => nextPhase()}
+                                disabled={gamePhase === 'finished' || gamePhase === 'showdown'}
+                                className="debug-button"
+                            >
+                                Advance Phase Manually ▶️
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+             <AnimatedPotTransfer potAmount={pot} winner={showdownWinner} />
         </div>
     );
 };
