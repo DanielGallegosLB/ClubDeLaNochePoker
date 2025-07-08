@@ -187,13 +187,13 @@ app.get('/api/auth/discord', passport.authenticate('discord'));
 
 // Ruta de callback de Discord después de la autorización del usuario (EXISTENTE)
 app.get('/api/auth/discord/callback',
-    passport.authenticate('discord', { failureRedirect: 'http://localhost:5173/?discordLink=failed' }),
+    passport.authenticate('discord', { failureRedirect: 'https://clubdelanochepoker.onrender.com/?discordLink=failed' }),
     async (req, res) => {
         const { discordId, username, pesos } = req.user;
 
         console.log(`✅ Redirigiendo al frontend con datos: discordId=${discordId}, username=${username}, pesos=${pesos}`);
 
-        res.redirect(`http://localhost:5173/?discordLink=success&discordId=${discordId}&pesos=${pesos}&username=${username}`);
+        res.redirect(`https://clubdelanochepoker.onrender.com/?discordLink=success&discordId=${discordId}&pesos=${pesos}&username=${username}`);
     }
 );
 
