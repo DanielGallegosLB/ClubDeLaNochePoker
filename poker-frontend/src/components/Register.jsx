@@ -7,6 +7,9 @@ const Register = ({ onRegisterSuccess, setMessage, message, onSwitchToLogin }) =
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
 
+    // Define la URL base del backend usando la variable de entorno
+    const BACKEND_BASE_URL = import.meta.env.VITE_BACKEND_URL;
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setMessage("");
@@ -17,7 +20,7 @@ const Register = ({ onRegisterSuccess, setMessage, message, onSwitchToLogin }) =
         }
 
         try {
-            const response = await fetch('http://localhost:5000/api/register', {
+            const response = await fetch(`${BACKEND_BASE_URL}/api/register`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

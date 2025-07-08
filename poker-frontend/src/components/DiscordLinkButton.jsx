@@ -6,6 +6,9 @@ const DiscordLinkButton = ({ onLoginSuccess }) => {
     const [linkStatus, setLinkStatus] = useState(null);
     const [discordInfo, setDiscordInfo] = useState(null);
 
+    // Define la URL base del backend usando la variable de entorno
+    const BACKEND_BASE_URL = import.meta.env.VITE_BACKEND_URL;
+
     useEffect(() => {
         console.log('DiscordLinkButton useEffect se ha ejecutado.'); // Log al inicio del useEffect
         const urlParams = new URLSearchParams(window.location.search);
@@ -14,6 +17,7 @@ const DiscordLinkButton = ({ onLoginSuccess }) => {
         const pesos = urlParams.get('pesos');
         const username = urlParams.get('username');
         const message = urlParams.get('message');
+
 
         console.log('Parámetros de URL:', { status, discordId, pesos, username, message }); // Log de los parámetros
 
@@ -40,7 +44,7 @@ const DiscordLinkButton = ({ onLoginSuccess }) => {
 
     const handleDiscordLink = () => {
         console.log('Botón "Continuar con Discord" clickeado. Redirigiendo al backend.'); // Log al hacer clic
-        window.location.href = 'http://localhost:5000/api/auth/discord';
+        window.location.href = `${BACKEND_BASE_URL}/api/auth/discord`;
     };
 
     return (

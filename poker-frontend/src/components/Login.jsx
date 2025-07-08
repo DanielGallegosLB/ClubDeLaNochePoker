@@ -6,12 +6,15 @@ const Login = ({ onLoginSuccess, setMessage, message, onSwitchToRegister }) => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
 
+    // Define la URL base del backend usando la variable de entorno
+    const BACKEND_BASE_URL = import.meta.env.VITE_BACKEND_URL;
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setMessage(''); // Limpiar mensajes previos
 
         try {
-            const response = await fetch('http://localhost:5000/api/login', { // Ruta de login en el backend
+            const response = await fetch(`${BACKEND_BASE_URL}/api/login`, { // Ruta de login en el backend
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

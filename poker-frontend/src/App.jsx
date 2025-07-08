@@ -14,10 +14,13 @@ function App() {
     const [authMessage, setAuthMessage] = useState('');
     const [showRegisterForm, setShowRegisterForm] = useState(true);
 
+    // Define la URL base del backend usando la variable de entorno
+    const BACKEND_BASE_URL = import.meta.env.VITE_BACKEND_URL;
+
     useEffect(() => {
         const checkAuth = async () => {
             try {
-                const response = await fetch('http://localhost:5000/api/check-auth', {
+                const response = await fetch(`${BACKEND_BASE_URL}/api/check-auth`, {
                     credentials: 'include'
                 });
                 const data = await response.json();
@@ -70,7 +73,7 @@ function App() {
 
     const handleLogout = async () => {
         try {
-            const response = await fetch('http://localhost:5000/api/logout', {
+            const response = await fetch(`${BACKEND_BASE_URL}/api/logout`, {
                 method: 'GET',
                 credentials: 'include'
             });
