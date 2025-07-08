@@ -193,7 +193,7 @@ app.get('/api/auth/discord/callback',
 
         console.log(`✅ Redirigiendo al frontend con datos: discordId=${discordId}, username=${username}, pesos=${pesos}`);
 
-        res.redirect(`https://clubdelanochepoker.onrender.com/?discordLink=success&discordId=${discordId}&pesos=${pesos}&username=${username}`);
+        res.redirect(`https://clubdelanochepoker-1.onrender.com/?discordLink=success&discordId=${discordId}&pesos=${pesos}&username=${username}`);
     }
 );
 
