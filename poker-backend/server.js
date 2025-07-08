@@ -87,7 +87,7 @@ const ProfileModel = mongoose.model('ProfileModel', profileModelSchema);
 passport.use(new DiscordStrategy({
     clientID: process.env.DISCORD_CLIENT_ID,
     clientSecret: process.env.DISCORD_CLIENT_SECRET,
-    callbackURL: 'http://localhost:5000/api/auth/discord/callback',
+    callbackURL: 'https://clubdelanochepoker.onrender.com/api/auth/discord/callback',
     scope: ['identify']
 },
 async (accessToken, refreshToken, profile, done) => {
