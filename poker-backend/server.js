@@ -16,7 +16,7 @@ const PORT = process.env.PORT || 5000;
 
 // Middlewares
 const allowedOrigins = [
-    'http://localhost:5173', // Para desarrollo local del frontend
+//   'http://localhost:5173', // Para desarrollo local del frontend
     'https://clubdelanochepoker-1.onrender.com' // ¡Esta es la URL de tu frontend en Render!
 ];
 
