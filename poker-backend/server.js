@@ -15,8 +15,21 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middlewares
+const allowedOrigins = [
+    'http://localhost:5173', // Para desarrollo local del frontend
+    'https://clubdelanochepoker-1.onrender.com' // ¡Esta es la URL de tu frontend en Render!
+];
+
 app.use(cors({
-    origin: 'http://localhost:5173',
+    origin: function (origin, callback) {
+        // Permite peticiones sin origen (como las de Postman/cURL, o del mismo servidor)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.indexOf(origin) === -1) {
+            const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+            return callback(new Error(msg), false);
+        }
+        return callback(null, true);
+    },
     credentials: true
 }));
 app.use(express.json()); // Para parsear JSON en el cuerpo de las peticiones
