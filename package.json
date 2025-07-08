@@ -1,0 +1,25 @@
+{
+  "name": "27-pagina_web_poker",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev --prefix poker-frontend\" \"npm run start --prefix poker-backend\"",
+    "start-backend": "npm run start --prefix poker-backend",
+    "start-frontend": "npm run dev --prefix poker-frontend"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.0.1",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.16.1"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.0"
+  }
+}
