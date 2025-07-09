@@ -146,7 +146,7 @@ passport.use(new LocalStrategy(
                 console.log(`❌ LocalStrategy: Contraseña incorrecta para el usuario ${username}.`);
                 return done(null, false, { message: 'Contraseña incorrecta.' });
             }
-            console(`✅ LocalStrategy: Autenticación exitosa para el usuario: ${username}`);
+            console.log(`✅ LocalStrategy: Autenticación exitosa para el usuario: ${username}`);
             return done(null, user);
         } catch (err) {
             console.error('🔴 LocalStrategy: Error inesperado:', err);
