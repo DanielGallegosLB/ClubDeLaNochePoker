@@ -10,15 +10,21 @@ import './App.css';
 function App() {
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [userInfo, setUserInfo] = useState(null);
-    const [loading, setLoading] = useState(true);
+    // Cambiamos 'loading' para que indique si la verificación inicial de auth ha terminado
+    // No bloquearemos la UI inicial con él.
+    const [authCheckCompleted, setAuthCheckCompleted] = useState(false);
     const [authMessage, setAuthMessage] = useState('');
     const [showRegisterForm, setShowRegisterForm] = useState(true);
+    // Nuevo estado para mostrar un indicador de carga de sesión si es necesario
+    const [isCheckingSession, setIsCheckingSession] = useState(true);
+
 
     // Define la URL base del backend usando la variable de entorno
     const BACKEND_BASE_URL = import.meta.env.VITE_BACKEND_URL;
 
     useEffect(() => {
         const checkAuth = async () => {
+            setIsCheckingSession(true); // Indicar que la verificación de sesión está en curso
             try {
                 const response = await fetch(`${BACKEND_BASE_URL}/api/check-auth`, {
                     credentials: 'include'
@@ -39,12 +45,14 @@ function App() {
             } catch (error) {
                 console.error('App.jsx - Error al verificar la autenticación:', error);
             } finally {
-                setLoading(false);
+                setIsCheckingSession(false); // La verificación de sesión ha terminado
+                setAuthCheckCompleted(true); // Marcar que la verificación inicial ha concluido
             }
         };
 
         checkAuth();
 
+        // Manejo de redirección de Discord (esto puede ocurrir en cualquier momento, no solo al cargar)
         const urlParams = new URLSearchParams(window.location.search);
         const status = urlParams.get('discordLink');
         if (status === 'success') {
@@ -55,20 +63,26 @@ function App() {
             setUserInfo(info);
             setIsLoggedIn(true);
             window.history.replaceState({}, document.title, window.location.pathname);
-            setLoading(false);
+            // Si el login de Discord fue exitoso, no necesitamos mostrar el indicador de carga de sesión
+            setIsCheckingSession(false);
+            setAuthCheckCompleted(true);
         } else if (status === 'failed' || status === 'error') {
             console.error('Discord login failed or had an error.');
             window.history.replaceState({}, document.title, window.location.pathname);
-            setLoading(false);
+            setIsCheckingSession(false);
+            setAuthCheckCompleted(true);
         }
 
-    }, []);
+    }, []); // El array de dependencias vacío asegura que se ejecute solo una vez al montar
 
     const handleLoginSuccess = (info) => {
         setUserInfo(info);
         setIsLoggedIn(true);
         console.log('App.jsx - Login exitoso:', info);
         setAuthMessage('');
+        // Una vez logueado, la verificación de sesión ya no es relevante
+        setIsCheckingSession(false);
+        setAuthCheckCompleted(true);
     };
 
     const handleLogout = async () => {
@@ -98,35 +112,36 @@ function App() {
         setShowRegisterForm(formType === 'register');
     };
 
-    if (loading) {
-        return (
-            <div className="loading-screen">
-                Cargando sesión...
-            </div>
-        );
-    }
-
+    // No bloqueamos la renderización inicial con 'loading'
+    // En su lugar, mostramos la UI de login/registro
     return (
         <div className="App">
             {!isLoggedIn ? (
                 <div className="auth-page-container"
-    style={{
-        width: '100%',
-        maxWidth: '450px',
-        margin: '0 auto',
-        padding: '20px',
-        boxSizing: 'border-box',
-        // Otros estilos que ya tengas en este div, como background, border, etc.
-    }}>
+                    style={{
+                        width: '100%',
+                        maxWidth: '450px',
+                        margin: '0 auto',
+                        padding: '20px',
+                        boxSizing: 'border-box',
+                        // Otros estilos que ya tengas en este div, como background, border, etc.
+                    }}>
                     <h1 className="auth-title">Club de la Noche Poker 🃏</h1>
                     <h2 className="auth-subtitle">
                         {showRegisterForm ? 'Regístrate para Jugar' : 'Inicia Sesión para Jugar'}
                     </h2>
 
-                    {/* NUEVO: Botones para alternar entre registro e inicio de sesión */}
+                    {/* Indicador de carga de sesión */}
+                    {isCheckingSession && (
+                        <p style={{ color: '#63b3ed', marginBottom: '15px', fontSize: '0.9em' }}>
+                            Cargando sesión existente...
+                        </p>
+                    )}
+
+                    {/* Botones para alternar entre registro e inicio de sesión */}
                     <div style={{
-                        display: 'flex', // Convierte este div en un contenedor flex
-                        justifyContent: 'center', // Centra sus elementos hijos (los botones) horizontalmente
+                        display: 'flex',
+                        justifyContent: 'center',
                         marginBottom: '20px',
                         width: '100%',
                         maxWidth: '400px',
@@ -143,8 +158,8 @@ function App() {
                                 fontWeight: 'bold',
                                 border: 'none',
                                 cursor: 'pointer',
-                                backgroundColor: showRegisterForm ? '#2d3748' : '#4a5568', // Fondo activo/inactivo
-                                color: showRegisterForm ? '#fff' : '#cbd5e0', // Texto activo/inactivo
+                                backgroundColor: showRegisterForm ? '#2d3748' : '#4a5568',
+                                color: showRegisterForm ? '#fff' : '#cbd5e0',
                                 transition: 'background-color 0.3s ease, color 0.3s ease',
                                 borderRight: showRegisterForm ? 'none' : '1px solid #2d3748'
                             }}
@@ -169,21 +184,20 @@ function App() {
                             Iniciar Sesión
                         </button>
                     </div>
-                    {/* FIN NUEVOS BOTONES */}
 
                     {showRegisterForm ? (
                         <Register
                             onRegisterSuccess={handleLoginSuccess}
                             setMessage={setAuthMessage}
                             message={authMessage}
-                            onSwitchToLogin={() => handleSwitchForm('login')} // Mantener para el mensaje de "usuario ya existe"
+                            onSwitchToLogin={() => handleSwitchForm('login')}
                         />
                     ) : (
                         <Login
                             onLoginSuccess={handleLoginSuccess}
                             setMessage={setAuthMessage}
                             message={authMessage}
-                            onSwitchToRegister={() => handleSwitchForm('register')} // Mantener para el enlace "no tienes cuenta"
+                            onSwitchToRegister={() => handleSwitchForm('register')}
                         />
                     )}
 
